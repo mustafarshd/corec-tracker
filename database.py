@@ -1,15 +1,33 @@
 """
 Database operations for storing and retrieving facility usage data.
 """
+import os
 import sqlite3
 import json
 from datetime import datetime
 from typing import List, Dict, Optional
 
 
+def _default_db_path() -> str:
+    """Use a path that is writable on Railway/Heroku (e.g. /tmp)."""
+    if os.environ.get("PORT"):
+        # Platform sets PORT (Railway, Heroku, etc.) - use /tmp for SQLite
+        base = os.environ.get("TMPDIR", "/tmp")
+        path = os.path.join(base, "facility_data.db")
+        # Ensure parent dir exists (e.g. /tmp)
+        parent = os.path.dirname(path)
+        if parent and not os.path.isdir(parent):
+            try:
+                os.makedirs(parent, exist_ok=True)
+            except OSError:
+                pass
+        return path
+    return "facility_data.db"
+
+
 class FacilityDatabase:
-    def __init__(self, db_path: str = "facility_data.db"):
-        self.db_path = db_path
+    def __init__(self, db_path: str = None):
+        self.db_path = db_path or _default_db_path()
         self.init_database()
     
     def init_database(self):

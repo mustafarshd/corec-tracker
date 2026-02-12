@@ -5,14 +5,25 @@ from flask import Flask, render_template, jsonify, request
 from datetime import datetime, timedelta
 import threading
 import time
+import os
 import schedule
 from scraper import FacilityUsageScraper
 from database import FacilityDatabase
 from analyze import FacilityAnalyzer
 
 app = Flask(__name__)
-db = FacilityDatabase()
-analyzer = FacilityAnalyzer()
+
+# Initialize DB and analyzer (may fail on read-only filesystems; we handle it)
+db = None
+analyzer = None
+
+try:
+    db = FacilityDatabase()
+    analyzer = FacilityAnalyzer()
+except Exception as e:
+    print(f"Database init failed (app will run in read-only mode): {e}")
+    import traceback
+    traceback.print_exc()
 
 # Global flag for background task
 collector_running = False
@@ -99,15 +110,31 @@ def stop_background_collector():
     print("Background data collector stopped")
 
 
+@app.route('/health')
+def health():
+    """Health check - no DB required. Used by Railway to verify the app is up."""
+    return jsonify({'status': 'ok'}), 200
+
+
 @app.route('/')
 def index():
     """Main page."""
     return render_template('index.html')
 
 
+def _db_required():
+    """Return error response if DB failed to init."""
+    if db is None:
+        return jsonify({'error': 'Database unavailable'}), 503
+    return None
+
+
 @app.route('/api/facilities')
 def get_facilities():
     """Get list of all facilities."""
+    err = _db_required()
+    if err:
+        return err
     facilities = db.get_all_facilities()
     return jsonify({'facilities': facilities})
 
@@ -115,6 +142,9 @@ def get_facilities():
 @app.route('/api/facility/<facility_name>/current')
 def get_current_data(facility_name):
     """Get current/latest data for a facility."""
+    err = _db_required()
+    if err:
+        return err
     data = db.get_facility_data(facility_name)
     if data:
         latest = data[-1]  # Most recent
@@ -129,6 +159,9 @@ def get_current_data(facility_name):
 @app.route('/api/facility/<facility_name>/recommendations')
 def get_recommendations(facility_name):
     """Get recommendations for a facility."""
+    err = _db_required()
+    if err:
+        return err
     days = request.args.get('days', default=7, type=int)
     
     best_times = analyzer.get_best_times(facility_name, days_back=days, top_n=5)
@@ -152,6 +185,9 @@ def get_recommendations(facility_name):
 @app.route('/api/facility/<facility_name>/history')
 def get_history(facility_name):
     """Get historical data for a facility."""
+    err = _db_required()
+    if err:
+        return err
     days = request.args.get('days', default=7, type=int)
     start_date = datetime.now() - timedelta(days=days)
     
@@ -168,6 +204,9 @@ def get_history(facility_name):
 def get_status():
     """Get collector status."""
     global collector_running
+    err = _db_required()
+    if err:
+        return err
     facilities = db.get_all_facilities()
     
     # Get total data points
