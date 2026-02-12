@@ -6,24 +6,38 @@ from datetime import datetime, timedelta
 import threading
 import time
 import os
-import schedule
-from scraper import FacilityUsageScraper
-from database import FacilityDatabase
-from analyze import FacilityAnalyzer
+import sys
+
+# Do not import scraper here - it pulls in Selenium/Chrome and can crash on Railway.
+# Scraper is imported only inside collect_data_background() when actually needed.
 
 app = Flask(__name__)
 
-# Initialize DB and analyzer (may fail on read-only filesystems; we handle it)
+# DB and analyzer - initialized lazily on first use so app always starts (e.g. /health works)
 db = None
 analyzer = None
+_db_init_error = None
 
-try:
-    db = FacilityDatabase()
-    analyzer = FacilityAnalyzer()
-except Exception as e:
-    print(f"Database init failed (app will run in read-only mode): {e}")
-    import traceback
-    traceback.print_exc()
+
+def _ensure_db():
+    """Initialize db and analyzer once, on first use. Returns True if ready."""
+    global db, analyzer, _db_init_error
+    if db is not None and analyzer is not None:
+        return True
+    if _db_init_error is not None:
+        return False
+    try:
+        from database import FacilityDatabase
+        from analyze import FacilityAnalyzer
+        db = FacilityDatabase()
+        analyzer = FacilityAnalyzer()
+        return True
+    except Exception as e:
+        _db_init_error = str(e)
+        print(f"Database/analyzer init failed: {_db_init_error}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        return False
 
 # Global flag for background task
 collector_running = False
@@ -31,15 +45,20 @@ collector_thread = None
 
 
 def collect_data_background():
-    """Background task to collect facility usage data."""
+    """Background task to collect facility usage data. Scraper imported here to avoid loading Selenium at app startup."""
     global collector_running
     scraper = None
 
     while collector_running:
         try:
-            # Create scraper inside loop so one failure doesn't kill the thread
+            # Lazy-import so Railway never loads Selenium/Chrome at startup
             if scraper is None:
+                from scraper import FacilityUsageScraper
                 scraper = FacilityUsageScraper(headless=True)
+
+            if not _ensure_db():
+                time.sleep(60)
+                continue
 
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Collecting facility usage data...")
             facilities = scraper.scrape()
@@ -116,16 +135,27 @@ def health():
     return jsonify({'status': 'ok'}), 200
 
 
+@app.errorhandler(Exception)
+def handle_error(e):
+    """Return a response instead of crashing so Railway sees a reply."""
+    import traceback
+    traceback.print_exc(file=sys.stderr)
+    return jsonify({'error': 'Internal server error', 'message': str(e)}), 500
+
+
 @app.route('/')
 def index():
     """Main page."""
-    return render_template('index.html')
+    try:
+        return render_template('index.html')
+    except Exception as e:
+        return jsonify({'error': 'Template failed', 'message': str(e)}), 500
 
 
 def _db_required():
-    """Return error response if DB failed to init."""
-    if db is None:
-        return jsonify({'error': 'Database unavailable'}), 503
+    """Return error response if DB failed to init (lazy init on first use)."""
+    if not _ensure_db():
+        return jsonify({'error': 'Database unavailable', 'detail': _db_init_error}), 503
     return None
 
 
