@@ -23,6 +23,8 @@ Railway is the easiest option with a free tier:
 
 **Cost**: Free tier includes 500 hours/month, $5/month for more
 
+**Note:** The live data collector does not run on Railway by default (Railway does not include Chrome/ChromeDriver). The web app will stay up and you can view any data you already have. To get new data, run `python collect_data.py` on your laptop occasionally and push the updated database, or run the app locally with `python app.py` to collect data.
+
 ---
 
 ### Option 2: Render (Free Tier Available)

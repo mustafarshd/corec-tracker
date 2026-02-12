@@ -22,13 +22,17 @@ collector_thread = None
 def collect_data_background():
     """Background task to collect facility usage data."""
     global collector_running
-    scraper = FacilityUsageScraper(headless=True)
-    
+    scraper = None
+
     while collector_running:
         try:
+            # Create scraper inside loop so one failure doesn't kill the thread
+            if scraper is None:
+                scraper = FacilityUsageScraper(headless=True)
+
             print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Collecting facility usage data...")
             facilities = scraper.scrape()
-            
+
             if facilities:
                 for facility in facilities:
                     db.insert_usage_data(
@@ -42,32 +46,50 @@ def collect_data_background():
                 print(f"Collected data for {len(facilities)} facilities")
             else:
                 print("No facility data found")
-        
+
         except Exception as e:
             print(f"Error collecting data: {e}")
             import traceback
             traceback.print_exc()
-        
+            # Scraper may be broken (e.g. no Chrome); drop it so we retry creating it next loop
+            try:
+                if scraper:
+                    scraper.close()
+            except Exception:
+                pass
+            scraper = None
+
         # Wait 15 minutes before next collection
         for _ in range(900):  # 15 minutes = 900 seconds
             if not collector_running:
                 break
             time.sleep(1)
-    
-    scraper.close()
+
+    try:
+        if scraper:
+            scraper.close()
+    except Exception:
+        pass
 
 
 def start_background_collector():
-    """Start the background data collection task."""
+    """Start the background data collection task. Safe to call; failures are logged, not raised."""
     global collector_running, collector_thread
-    
-    if not collector_running:
+
+    if collector_running:
+        return False
+    try:
         collector_running = True
         collector_thread = threading.Thread(target=collect_data_background, daemon=True)
         collector_thread.start()
         print("Background data collector started")
         return True
-    return False
+    except Exception as e:
+        collector_running = False
+        print(f"Could not start background collector: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 
 def stop_background_collector():
@@ -184,14 +206,9 @@ def stop_collector():
     return jsonify({'status': 'stopped', 'message': 'Data collector stopped'})
 
 
-# Initialize collector on import (for production)
-# In production, this will start when the app loads
+# Only start collector when running locally (python app.py).
+# On Railway/Heroku we do NOT start it - they typically don't have Chrome/ChromeDriver,
+# so the web app stays up and you can view existing data or run the collector elsewhere.
 if __name__ == '__main__':
-    # Start background collector
     start_background_collector()
-    
-    # Run Flask app
     app.run(host='0.0.0.0', port=5000, debug=False)
-else:
-    # Production mode - start collector when module is imported
-    start_background_collector()
