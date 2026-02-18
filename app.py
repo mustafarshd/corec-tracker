@@ -60,27 +60,32 @@ def collect_data_background():
                 time.sleep(60)
                 continue
 
-            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Collecting facility usage data...")
+            print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Collecting facility usage data...", file=sys.stderr)
             facilities = scraper.scrape()
 
             if facilities:
+                count = 0
                 for facility in facilities:
-                    db.insert_usage_data(
-                        facility_name=facility['name'],
-                        timestamp=facility['timestamp'],
-                        occupancy=facility.get('occupancy'),
-                        capacity=facility.get('capacity'),
-                        percentage=facility.get('percentage'),
-                        metadata={'source': 'web_scraper'}
-                    )
-                print(f"Collected data for {len(facilities)} facilities")
+                    try:
+                        db.insert_usage_data(
+                            facility_name=facility['name'],
+                            timestamp=facility['timestamp'],
+                            occupancy=facility.get('occupancy'),
+                            capacity=facility.get('capacity'),
+                            percentage=facility.get('percentage'),
+                            metadata={'source': 'web_scraper'}
+                        )
+                        count += 1
+                    except Exception as db_err:
+                        print(f"Error inserting {facility.get('name', 'unknown')}: {db_err}", file=sys.stderr)
+                print(f"Successfully collected and saved data for {count}/{len(facilities)} facilities", file=sys.stderr)
             else:
-                print("No facility data found")
+                print("No facility data found in scrape result", file=sys.stderr)
 
         except Exception as e:
-            print(f"Error collecting data: {e}")
+            print(f"Error collecting data: {e}", file=sys.stderr)
             import traceback
-            traceback.print_exc()
+            traceback.print_exc(file=sys.stderr)
             # Scraper may be broken (e.g. no Chrome); drop it so we retry creating it next loop
             try:
                 if scraper:
@@ -140,12 +145,41 @@ def health():
 def debug():
     """Debug endpoint to check environment and collector state."""
     import platform
+    db_path = None
+    db_exists = False
+    db_size = 0
+    if db:
+        db_path = db.db_path
+        db_exists = os.path.exists(db_path)
+        if db_exists:
+            try:
+                db_size = os.path.getsize(db_path)
+            except:
+                pass
+    
+    facilities_count = 0
+    total_data_points = 0
+    if db:
+        try:
+            facilities = db.get_all_facilities()
+            facilities_count = len(facilities)
+            for facility in facilities:
+                data = db.get_facility_data(facility)
+                total_data_points += len(data)
+        except Exception as e:
+            pass
+    
     return jsonify({
         'collector_running': collector_running,
         'enable_collector_env': os.environ.get('ENABLE_COLLECTOR', 'not set'),
         'db_initialized': db is not None,
+        'db_path': db_path,
+        'db_exists': db_exists,
+        'db_size_bytes': db_size,
         'analyzer_initialized': analyzer is not None,
         'db_error': _db_init_error,
+        'facilities_count': facilities_count,
+        'total_data_points': total_data_points,
         'platform': platform.system(),
         'python_version': platform.python_version(),
         'chromium_exists': os.path.exists('/usr/bin/chromium') or os.path.exists('/usr/bin/chromium-browser'),
@@ -304,6 +338,59 @@ def stop_collector():
     """Stop the background collector."""
     stop_background_collector()
     return jsonify({'status': 'stopped', 'message': 'Data collector stopped'})
+
+
+@app.route('/api/collector/test', methods=['POST'])
+def test_collector():
+    """Test collector by running one collection immediately. Returns results."""
+    if not _ensure_db():
+        return jsonify({'error': 'Database not available'}), 503
+    
+    try:
+        from scraper import FacilityUsageScraper
+        scraper = FacilityUsageScraper(headless=True)
+        
+        print("Running test collection...", file=sys.stderr)
+        facilities = scraper.scrape()
+        
+        if facilities:
+            saved_count = 0
+            for facility in facilities:
+                try:
+                    db.insert_usage_data(
+                        facility_name=facility['name'],
+                        timestamp=facility['timestamp'],
+                        occupancy=facility.get('occupancy'),
+                        capacity=facility.get('capacity'),
+                        percentage=facility.get('percentage'),
+                        metadata={'source': 'test_collection'}
+                    )
+                    saved_count += 1
+                except Exception as e:
+                    print(f"Error saving {facility.get('name')}: {e}", file=sys.stderr)
+            
+            scraper.close()
+            return jsonify({
+                'status': 'success',
+                'facilities_found': len(facilities),
+                'facilities_saved': saved_count,
+                'facilities': facilities[:5]  # Return first 5 as sample
+            })
+        else:
+            scraper.close()
+            return jsonify({
+                'status': 'no_data',
+                'message': 'Scraper returned no facilities'
+            })
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        print(f"Test collection error: {error_trace}", file=sys.stderr)
+        return jsonify({
+            'status': 'error',
+            'error': str(e),
+            'traceback': error_trace
+        }), 500
 
 
 # Start collector: locally always; on Railway only if ENABLE_COLLECTOR=1 (Chrome/Chromium must be installed via nixpacks.toml).

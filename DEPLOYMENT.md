@@ -23,7 +23,11 @@ Railway is the easiest option with a free tier:
 
 **Cost**: Free tier includes 500 hours/month, $5/month for more
 
-**Note:** The live data collector does not run on Railway by default (Railway does not include Chrome/ChromeDriver). The web app will stay up and you can view any data you already have. To get new data, run `python collect_data.py` on your laptop occasionally and push the updated database, or run the app locally with `python app.py` to collect data.
+**To run the collector on Railway (optional):**
+1. The repo includes `nixpacks.toml`, which installs Chromium and Chromium driver on deploy.
+2. In Railway: open your project → **Variables** → add `ENABLE_COLLECTOR` = `1`.
+3. Redeploy. The collector will start automatically and the status will show "Running".
+4. You can also click **Start collector** on the website (when status is Stopped) to try starting it without redeploying.
 
 ---
 

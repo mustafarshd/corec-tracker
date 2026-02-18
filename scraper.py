@@ -1,6 +1,7 @@
 """
 Web scraper to extract facility usage data from Purdue RecWell website.
 """
+import os
 import time
 import re
 from datetime import datetime
@@ -36,6 +37,7 @@ class FacilityUsageScraper:
     
     def _setup_driver(self):
         """Setup Selenium WebDriver."""
+        import platform
         chrome_options = Options()
         if self.headless:
             chrome_options.add_argument("--headless")
@@ -44,14 +46,26 @@ class FacilityUsageScraper:
         chrome_options.add_argument("--disable-gpu")
         chrome_options.add_argument("--window-size=1920,1080")
         chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-        
+        # On Linux (e.g. Railway) use system Chromium if present
+        if platform.system() == "Linux":
+            for binary in ("/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome-stable"):
+                if os.path.exists(binary):
+                    chrome_options.binary_location = binary
+                    break
+            # Prefer system chromedriver on Linux (installed by nixpacks)
+            chromedriver_path = os.environ.get("CHROMEDRIVER_PATH") or (
+                "/usr/bin/chromedriver" if os.path.exists("/usr/bin/chromedriver") else None
+            )
+        else:
+            chromedriver_path = os.environ.get("CHROMEDRIVER_PATH")
         try:
-            # Try using webdriver-manager first (auto-downloads ChromeDriver)
-            if WEBDRIVER_MANAGER_AVAILABLE:
+            if chromedriver_path and os.path.exists(chromedriver_path):
+                service = Service(chromedriver_path)
+                self.driver = webdriver.Chrome(service=service, options=chrome_options)
+            elif WEBDRIVER_MANAGER_AVAILABLE:
                 service = Service(ChromeDriverManager().install())
                 self.driver = webdriver.Chrome(service=service, options=chrome_options)
             else:
-                # Fall back to system ChromeDriver
                 self.driver = webdriver.Chrome(options=chrome_options)
         except Exception as e:
             print(f"Error setting up Chrome driver: {e}")

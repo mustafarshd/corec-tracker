@@ -255,7 +255,10 @@
             <div class="status-bar">
                 <div class="status-item">
                     <div class="status-label">Collector Status</div>
-                    <div class="collector-status" id="collectorStatus">Loading...</div>
+                    <div>
+                        <span class="collector-status" id="collectorStatus">Loading...</span>
+                        <button type="button" id="startCollectorBtn" style="display: none; margin-left: 8px; padding: 4px 12px; font-size: 12px;">Start collector</button>
+                    </div>
                 </div>
                 <div class="status-item">
                     <div class="status-label">Facilities Tracked</div>
@@ -304,6 +307,8 @@
                     data.collector_running ? 'Running' : 'Stopped';
                 document.getElementById('collectorStatus').className = 
                     'collector-status ' + (data.collector_running ? 'running' : 'stopped');
+                const startBtn = document.getElementById('startCollectorBtn');
+                startBtn.style.display = data.collector_running ? 'none' : 'inline-block';
                 document.getElementById('facilitiesCount').textContent = data.facilities_tracked;
                 document.getElementById('dataPoints').textContent = data.total_data_points;
                 
@@ -470,6 +475,21 @@
             content.innerHTML = html;
         }
         
+        // Start collector button
+        document.getElementById('startCollectorBtn').addEventListener('click', async function() {
+            this.disabled = true;
+            try {
+                const res = await fetch('/api/collector/start', { method: 'POST' });
+                const data = await res.json();
+                if (data.status === 'started') {
+                    loadStatus();
+                }
+            } catch (e) {
+                console.error(e);
+            }
+            this.disabled = false;
+        });
+
         // Initialize
         loadStatus();
         loadFacilities();
