@@ -13,7 +13,7 @@ class FacilityAnalyzer:
         self.db = FacilityDatabase(db_path)
     
     def get_best_times(self, facility_name: str, days_back: int = 7, 
-                      top_n: int = 5) -> List[Dict]:
+                      top_n: int = 5) -> list[dict]:
         """
         Get the best times to visit a facility based on historical data.
         
@@ -50,7 +50,7 @@ class FacilityAnalyzer:
         return time_slots[:top_n]
     
     def get_worst_times(self, facility_name: str, days_back: int = 7, 
-                       top_n: int = 5) -> List[Dict]:
+                       top_n: int = 5) -> list[dict]:
         """Get the worst (busiest) times to visit a facility."""
         data = self.db.get_data_by_time_of_day(facility_name, days_back)
         
