@@ -418,7 +418,7 @@ class FacilityUsageScraper:
         
         return None
     
-    def _convert_json_to_facility(self, data: Dict) -> Dict:
+    def _convert_json_to_facility(self, data: dict) -> dict:
         """Convert JSON data to facility format."""
         name = data.get('name') or data.get('facility') or 'Unknown'
         occupancy = data.get('occupancy') or data.get('current')
