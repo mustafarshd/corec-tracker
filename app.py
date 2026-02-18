@@ -107,18 +107,19 @@ def start_background_collector():
     global collector_running, collector_thread
 
     if collector_running:
+        print("Collector already running", file=sys.stderr)
         return False
     try:
         collector_running = True
         collector_thread = threading.Thread(target=collect_data_background, daemon=True)
         collector_thread.start()
-        print("Background data collector started")
+        print("Background data collector started successfully", file=sys.stderr)
         return True
     except Exception as e:
         collector_running = False
-        print(f"Could not start background collector: {e}")
+        print(f"Could not start background collector: {e}", file=sys.stderr)
         import traceback
-        traceback.print_exc()
+        traceback.print_exc(file=sys.stderr)
         return False
 
 
@@ -133,6 +134,23 @@ def stop_background_collector():
 def health():
     """Health check - no DB required. Used by Railway to verify the app is up."""
     return jsonify({'status': 'ok'}), 200
+
+
+@app.route('/api/debug')
+def debug():
+    """Debug endpoint to check environment and collector state."""
+    import platform
+    return jsonify({
+        'collector_running': collector_running,
+        'enable_collector_env': os.environ.get('ENABLE_COLLECTOR', 'not set'),
+        'db_initialized': db is not None,
+        'analyzer_initialized': analyzer is not None,
+        'db_error': _db_init_error,
+        'platform': platform.system(),
+        'python_version': platform.python_version(),
+        'chromium_exists': os.path.exists('/usr/bin/chromium') or os.path.exists('/usr/bin/chromium-browser'),
+        'chromedriver_exists': os.path.exists('/usr/bin/chromedriver')
+    })
 
 
 @app.errorhandler(Exception)
@@ -236,7 +254,15 @@ def get_status():
     global collector_running
     err = _db_required()
     if err:
-        return err
+        # Return status even if DB failed, but mark DB as unavailable
+        return jsonify({
+            'collector_running': collector_running,
+            'facilities_tracked': 0,
+            'total_data_points': 0,
+            'latest_collection': None,
+            'db_available': False,
+            'enable_collector_env': os.environ.get('ENABLE_COLLECTOR', 'not set')
+        })
     facilities = db.get_all_facilities()
     
     # Get total data points
@@ -256,16 +282,21 @@ def get_status():
         'collector_running': collector_running,
         'facilities_tracked': len(facilities),
         'total_data_points': total_points,
-        'latest_collection': latest_time
+        'latest_collection': latest_time,
+        'db_available': True,
+        'enable_collector_env': os.environ.get('ENABLE_COLLECTOR', 'not set')
     })
 
 
 @app.route('/api/collector/start', methods=['POST'])
 def start_collector():
     """Start the background collector."""
-    if start_background_collector():
-        return jsonify({'status': 'started', 'message': 'Data collector started'})
-    return jsonify({'status': 'already_running', 'message': 'Collector already running'})
+    try:
+        if start_background_collector():
+            return jsonify({'status': 'started', 'message': 'Data collector started'})
+        return jsonify({'status': 'already_running', 'message': 'Collector already running'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
 @app.route('/api/collector/stop', methods=['POST'])
@@ -275,9 +306,19 @@ def stop_collector():
     return jsonify({'status': 'stopped', 'message': 'Data collector stopped'})
 
 
-# Only start collector when running locally (python app.py).
-# On Railway/Heroku we do NOT start it - they typically don't have Chrome/ChromeDriver,
-# so the web app stays up and you can view existing data or run the collector elsewhere.
+# Start collector: locally always; on Railway only if ENABLE_COLLECTOR=1 (Chrome/Chromium must be installed via nixpacks.toml).
 if __name__ == '__main__':
     start_background_collector()
     app.run(host='0.0.0.0', port=5000, debug=False)
+else:
+    # Production mode (Gunicorn) - check env var
+    enable_collector = os.environ.get('ENABLE_COLLECTOR', '').strip().lower()
+    print(f"ENABLE_COLLECTOR env var: '{enable_collector}'", file=sys.stderr)
+    if enable_collector in ('1', 'true', 'yes'):
+        print("Attempting to start collector in production mode...", file=sys.stderr)
+        if start_background_collector():
+            print("Collector started successfully in production", file=sys.stderr)
+        else:
+            print("Collector failed to start in production", file=sys.stderr)
+    else:
+        print(f"Collector not started: ENABLE_COLLECTOR='{enable_collector}' (not in ['1', 'true', 'yes'])", file=sys.stderr)
