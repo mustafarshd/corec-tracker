@@ -29,5 +29,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Railway will use Procfile for the start command (handles $PORT correctly)
-# No CMD needed - Procfile takes precedence
+# Make start script executable
+COPY start.sh /start.sh
+RUN chmod +x /start.sh
+
+# Use start script which properly handles PORT variable
+CMD ["/start.sh"]
