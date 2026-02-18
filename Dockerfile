@@ -32,8 +32,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Expose port (Railway will set PORT env var)
-EXPOSE $PORT
+# Expose port (Railway will set PORT env var at runtime)
+# EXPOSE is just documentation - Railway handles port mapping
+EXPOSE 8080
 
 # Run the application
 CMD gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
