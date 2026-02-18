@@ -74,7 +74,7 @@ class FacilityAnalyzer:
         
         return time_slots[:top_n]
     
-    def get_daily_patterns(self, facility_name: str, days_back: int = 7) -> Dict:
+    def get_daily_patterns(self, facility_name: str, days_back: int = 7) -> dict:
         """Get average occupancy patterns by day of week."""
         data = self.db.get_data_by_time_of_day(facility_name, days_back)
         
@@ -91,7 +91,7 @@ class FacilityAnalyzer:
         
         return daily_averages
     
-    def get_hourly_patterns(self, facility_name: str, days_back: int = 7) -> Dict:
+    def get_hourly_patterns(self, facility_name: str, days_back: int = 7) -> dict:
         """Get average occupancy patterns by hour of day."""
         data = self.db.get_data_by_time_of_day(facility_name, days_back)
         
