@@ -3,6 +3,7 @@ Analysis tool to recommend the best times to visit facilities.
 """
 import argparse
 from datetime import datetime, timedelta
+from typing import List, Dict
 from database import FacilityDatabase
 import pandas as pd
 
